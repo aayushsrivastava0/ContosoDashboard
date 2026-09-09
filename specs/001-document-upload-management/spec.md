@@ -11,6 +11,10 @@ Document Upload and Management for ContosoDashboard enables employees to upload 
 
 The capability must integrate with the existing dashboard experience without disrupting the current security model or offline training constraints. It covers document upload, search, project/task integration, notifications, and auditability while keeping the user experience simple and efficient.
 
+## Clarifications
+
+- Q: Should this feature be implemented as a training/offline app using the current local storage and mock authentication model, or as a production-style Azure/Entra deployment with Azure Blob Storage and Entra ID? → A: Training/offline model using local storage, mock auth, and the current dashboard architecture.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Upload and organize documents securely (Priority: P1)
@@ -103,9 +107,9 @@ Users need document visibility in the contexts they already use every day so tha
 - **FR-013**: The system MUST surface documents in the appropriate project, task, and personal contexts according to the user’s permissions.
 - **FR-014**: The system MUST include a recent documents area on the dashboard and a document count in summary views for the user’s accessible set.
 - **FR-015**: The system MUST log document-related events including uploads, downloads, updates, deletes, and sharing actions for review and audit.
-- **FR-016**: The system MUST support secure storage in Azure Blob Storage, with encryption at rest and TLS 1.3 in transit, while retaining the current ASP.NET Core integration model.
+- **FR-016**: The system MUST support secure local file storage in the current training/offline model while keeping an Azure-ready storage abstraction for future migration and retaining the current ASP.NET Core integration model.
 - **FR-017**: The system MUST perform malware and virus scanning prior to file acceptance and reject any file that fails the scan.
-- **FR-018**: The system MUST integrate with the organization’s identity model using Entra ID-based authentication and role enforcement that matches the employee hierarchy.
+- **FR-018**: The system MUST integrate with the project’s current identity and authorization model using the existing mock authentication flow and role-based enforcement, with any future Entra ID migration isolated behind the same access abstraction.
 - **FR-019**: The system MUST ensure that document metadata and access rules remain consistent with the existing authentication and role model in the application.
 - **FR-020**: The system MUST deliver the feature within an 8-10 week delivery window and provide a clear audit trail for all document access and lifecycle changes.
 
