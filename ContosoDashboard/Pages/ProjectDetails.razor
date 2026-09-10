@@ -5,6 +5,7 @@
 @using System.Security.Claims
 @attribute [Authorize]
 @inject IProjectService ProjectService
+@inject IDocumentService DocumentService
 @inject NavigationManager NavigationManager
 @inject AuthenticationStateProvider AuthenticationStateProvider
 
@@ -151,6 +152,23 @@
                         }
                     </div>
                 </div>
+
+                <div class="card mt-4">
+                    <div class="card-header"><h5 class="mb-0">Project Documents</h5></div>
+                    <div class="card-body">
+                        @if (projectDocuments?.Any() == true)
+                        {
+                            @foreach (var document in projectDocuments)
+                            {
+                                <div class="d-flex justify-content-between border-bottom py-2"><span>@document.Title</span><small class="text-muted">@document.Category</small></div>
+                            }
+                        }
+                        else
+                        {
+                            <p class="text-muted mb-0">No clean documents are available for this project.</p>
+                        }
+                    </div>
+                </div>
             </div>
 
             <div class="col-md-4">
@@ -237,6 +255,7 @@
     public int ProjectId { get; set; }
 
     private Project? project;
+    private List<Document>? projectDocuments;
     private int currentUserId = 0;
 
     protected override async Task OnInitializedAsync()
@@ -253,6 +272,7 @@
         if (currentUserId > 0)
         {
             project = await ProjectService.GetProjectByIdAsync(ProjectId, currentUserId);
+            projectDocuments = await ProjectService.GetProjectDocumentsAsync(ProjectId, currentUserId);
         }
         
         if (project == null)
