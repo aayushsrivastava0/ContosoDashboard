@@ -1,0 +1,137 @@
+@page "/documents"
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using ContosoDashboard.Models
+@using ContosoDashboard.Services
+@attribute [Authorize]
+@inject IDocumentService DocumentService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Documents - ContosoDashboard</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1>Documents</h1>
+            <p class="text-muted mb-0">Upload, find, and manage work documents.</p>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(message))
+    {
+        <div class="alert @(isError ? "alert-danger" : "alert-success")">@message</div>
+    }
+
+    <div class="card mb-4">
+        <div class="card-header"><h5 class="mb-0">Upload documents</h5></div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-4"><label class="form-label">Title</label><input class="form-control" @bind="title" /></div>
+                <div class="col-md-3"><label class="form-label">Category</label><select class="form-select" @bind="category"><option value="">Select category</option><option>Project Documents</option><option>Team Resources</option><option>Personal Files</option><option>Reports</option><option>Presentations</option><option>Other</option></select></div>
+                <div class="col-md-3"><label class="form-label">Project ID (optional)</label><input class="form-control" type="number" @bind="projectId" /></div>
+                <div class="col-md-2"><label class="form-label">Tags</label><input class="form-control" @bind="tags" /></div>
+                <div class="col-12"><label class="form-label">Description</label><textarea class="form-control" @bind="description"></textarea></div>
+                <div class="col-md-8"><InputFile OnChange="OnFilesSelected" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.png,.jpg,.jpeg,.gif" /></div>
+                <div class="col-md-4 text-md-end"><button class="btn btn-primary" disabled="@(selectedFiles.Count == 0 || isUploading)" @onclick="UploadFiles">@(isUploading ? "Uploading..." : "Upload selected files")</button></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex gap-2 mb-3">
+        <input class="form-control" placeholder="Search title, file name, tags..." @bind="search" @bind:event="oninput" />
+        <button class="btn btn-outline-secondary" @onclick="LoadDocuments">Search</button>
+    </div>
+
+    @if (documents is null)
+    {
+        <p><em>Loading...</em></p>
+    }
+    else if (documents.Count == 0)
+    {
+        <div class="alert alert-info">No clean documents are available in your authorized scope.</div>
+    }
+    else
+    {
+        <div class="table-responsive"><table class="table table-hover align-middle"><thead><tr><th>Document</th><th>Category</th><th>Uploaded by</th><th>Status</th><th>Uploaded</th></tr></thead><tbody>
+        @foreach (var document in documents)
+        {
+            <tr><td><strong>@document.Title</strong><br /><small class="text-muted">@document.FileName</small></td><td>@document.Category</td><td>@document.UploadedByUser.DisplayName</td><td><span class="badge bg-success">@document.ScanStatus</span></td><td>@document.UploadedDate.ToLocalTime().ToString("MMM dd, yyyy")</td><td><a class="btn btn-sm btn-outline-primary" href="/documents/download/@document.DocumentId">Download</a> <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteDocument(document.DocumentId)">Delete</button></td></tr>
+        }
+        </tbody></table></div>
+    }
+</div>
+
+@code {
+    private List<Document>? documents;
+    private IReadOnlyList<IBrowserFile> selectedFiles = Array.Empty<IBrowserFile>();
+    private string title = string.Empty;
+    private string category = string.Empty;
+    private string description = string.Empty;
+    private string tags = string.Empty;
+    private string search = string.Empty;
+    private int? projectId;
+    private int currentUserId;
+    private bool isUploading;
+    private bool isError;
+    private string? message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var claim = state.User.FindFirst(ClaimTypes.NameIdentifier);
+        int.TryParse(claim?.Value, out currentUserId);
+        await LoadDocuments();
+    }
+
+    private void OnFilesSelected(InputFileChangeEventArgs args) => selectedFiles = args.GetMultipleFiles(20);
+
+    private async Task UploadFiles()
+    {
+        message = null;
+        isError = false;
+        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(category))
+        {
+            isError = true;
+            message = "Title and category are required.";
+            return;
+        }
+        isUploading = true;
+        var results = new List<string>();
+        try
+        {
+            foreach (var file in selectedFiles)
+            {
+                await using var stream = file.OpenReadStream(25 * 1024 * 1024);
+                var result = await DocumentService.UploadAsync(new DocumentUploadRequest(stream, file.Name, file.ContentType, file.Size, title, category, currentUserId, description, projectId, null, tags));
+                results.Add(result.Message);
+                if (!result.Succeeded) isError = true;
+            }
+        }
+        catch (IOException)
+        {
+            isError = true;
+            results.Add("Each document must be 25 MB or smaller.");
+        }
+        message = string.Join(" ", results);
+        isUploading = false;
+        selectedFiles = Array.Empty<IBrowserFile>();
+        await LoadDocuments();
+    }
+
+    private async Task LoadDocuments() => documents = currentUserId > 0 ? await DocumentService.GetAccessibleAsync(currentUserId, search) : new List<Document>();
+
+    private async Task DeleteDocument(int documentId)
+    {
+        if (await DocumentService.DeleteAsync(documentId, currentUserId))
+        {
+            message = "Document deleted.";
+            await LoadDocuments();
+        }
+        else
+        {
+            isError = true;
+            message = "You are not authorized to delete this document.";
+        }
+    }
+}

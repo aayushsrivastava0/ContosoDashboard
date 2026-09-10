@@ -8,6 +8,7 @@ public interface IDashboardService
 {
     Task<DashboardSummary> GetDashboardSummaryAsync(int userId);
     Task<List<Announcement>> GetActiveAnnouncementsAsync();
+    Task<List<Document>> GetRecentDocumentsAsync(int userId);
 }
 
 public class DashboardService : IDashboardService
@@ -40,10 +41,29 @@ public class DashboardService : IDashboardService
                 .CountAsync(),
 
             UnreadNotifications = await _context.Notifications
-                .CountAsync(n => n.UserId == userId && !n.IsRead)
+                .CountAsync(n => n.UserId == userId && !n.IsRead),
+
+            CleanDocuments = await _context.Documents
+                .CountAsync(d => d.ScanStatus == DocumentScanStatus.Clean &&
+                    (d.UploadedByUserId == userId || d.Shares.Any(s => s.UserId == userId && s.IsActive) ||
+                     (d.ProjectId.HasValue && _context.Projects.Any(p => p.ProjectId == d.ProjectId &&
+                         (p.ProjectManagerId == userId || p.ProjectMembers.Any(pm => pm.UserId == userId))))))
         };
 
         return summary;
+    }
+
+    public async Task<List<Document>> GetRecentDocumentsAsync(int userId)
+    {
+        return await _context.Documents
+            .Include(d => d.UploadedByUser)
+            .Where(d => d.ScanStatus == DocumentScanStatus.Clean &&
+                (d.UploadedByUserId == userId || d.Shares.Any(s => s.UserId == userId && s.IsActive) ||
+                 (d.ProjectId.HasValue && _context.Projects.Any(p => p.ProjectId == d.ProjectId &&
+                     (p.ProjectManagerId == userId || p.ProjectMembers.Any(pm => pm.UserId == userId))))))
+            .OrderByDescending(d => d.UploadedDate)
+            .Take(5)
+            .ToListAsync();
     }
 
     public async Task<List<Announcement>> GetActiveAnnouncementsAsync()
@@ -67,4 +87,5 @@ public class DashboardSummary
     public int TasksDueToday { get; set; }
     public int ActiveProjects { get; set; }
     public int UnreadNotifications { get; set; }
+    public int CleanDocuments { get; set; }
 }

@@ -63,6 +63,12 @@ ContosoDashboard is built using ASP.NET Core 8.0 with Blazor Server and provides
 
 ## Features
 
+### Document Upload and Management
+
+Documents are stored locally under `ContosoDashboard/App_Data/Documents`, outside `wwwroot`. Uploads are limited to 25 MB and supported document types, then enter a pending scan state. The local mock scanner requires no Azure keys or external services: ordinary files become `Clean`, while a filename containing `eicar` is deterministically marked `Quarantined` for training validation. Only clean documents can be searched, shared, previewed, or downloaded.
+
+Azure Functions with Queue Storage are an optional production adapter only. Local development uses the in-process queue and background worker, so the application remains offline-capable.
+
 ### ✅ Implemented Features
 
 - **Mock Authentication System**: User selection login, cookie-based auth, claims-based identity

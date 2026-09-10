@@ -31,6 +31,14 @@
             <div class="col-md-3 mb-3">
                 <div class="card summary-card">
                     <div class="card-body">
+                        <h5 class="card-title">Documents</h5>
+                        <p class="card-text display-4 text-success">@summary.CleanDocuments</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <div class="card summary-card">
+                    <div class="card-body">
                         <h5 class="card-title">Due Today</h5>
                         <p class="card-text display-4 text-warning">@summary.TasksDueToday</p>
                     </div>
@@ -96,6 +104,23 @@
         </div>
 
         <div class="col-md-6">
+            <h3>Recent Documents</h3>
+            @if (recentDocuments?.Any() == true)
+            {
+                <div class="list-group">
+                    @foreach (var document in recentDocuments)
+                    {
+                        <a href="/documents" class="list-group-item list-group-item-action"><strong>@document.Title</strong><br /><small class="text-muted">@document.Category · @document.UploadedDate.ToLocalTime().ToString("MMM dd")</small></a>
+                    }
+                </div>
+            }
+            else
+            {
+                <p class="text-muted">No recent documents.</p>
+            }
+        </div>
+
+        <div class="col-md-6">
             <h3>Recent Notifications</h3>
             @if (recentNotifications != null && recentNotifications.Any())
             {
@@ -124,6 +149,7 @@
     private DashboardSummary? summary;
     private List<Announcement>? announcements;
     private List<Notification>? recentNotifications;
+    private List<Document>? recentDocuments;
     private string userName = "User";
     private int currentUserId = 0;
 
@@ -146,6 +172,7 @@
             summary = await DashboardService.GetDashboardSummaryAsync(currentUserId);
             announcements = await DashboardService.GetActiveAnnouncementsAsync();
             recentNotifications = await NotificationService.GetUserNotificationsAsync(currentUserId);
+            recentDocuments = await DashboardService.GetRecentDocumentsAsync(currentUserId);
         }
     }
 

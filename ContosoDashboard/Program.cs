@@ -1,6 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using ContosoDashboard.Data;
 using ContosoDashboard.Services;
+using ContosoDashboard.Background;
+using Microsoft.Extensions.Options;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Components.Authorization;
 
@@ -16,6 +19,7 @@ builder.Services.AddScoped<AuthenticationStateProvider, CustomAuthenticationStat
 // Configure Database
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+builder.Services.Configure<DocumentStorageOptions>(builder.Configuration.GetSection("DocumentStorage"));
 
 // Configure Mock Authentication (Cookie-based for training purposes)
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
@@ -43,6 +47,11 @@ builder.Services.AddScoped<ITaskService, TaskService>();
 builder.Services.AddScoped<IProjectService, ProjectService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
+builder.Services.AddScoped<IFileStorageService, LocalFileStorageService>();
+builder.Services.AddScoped<DocumentAccessService>();
+builder.Services.AddScoped<IDocumentService, DocumentService>();
+builder.Services.AddSingleton<IScanQueueService, DocumentScanQueueService>();
+builder.Services.AddHostedService<DocumentVirusScanWorker>();
 
 // Add HttpContextAccessor for accessing user claims
 builder.Services.AddHttpContextAccessor();
@@ -56,7 +65,68 @@ using (var scope = app.Services.CreateScope())
     try
     {
         var context = services.GetRequiredService<ApplicationDbContext>();
-        context.Database.EnsureCreated(); // For development - use migrations in production
+        context.Database.EnsureCreated();
+        context.Database.ExecuteSqlRaw("""
+            IF OBJECT_ID(N'[Documents]', N'U') IS NULL
+            BEGIN
+                CREATE TABLE [Documents] (
+                    [DocumentId] int NOT NULL IDENTITY,
+                    [Title] nvarchar(255) NOT NULL,
+                    [Description] nvarchar(2000) NULL,
+                    [Category] nvarchar(100) NOT NULL,
+                    [FileName] nvarchar(255) NOT NULL,
+                    [StoredFileName] nvarchar(255) NOT NULL,
+                    [FilePath] nvarchar(1000) NOT NULL,
+                    [FileType] nvarchar(255) NOT NULL,
+                    [FileSizeBytes] bigint NOT NULL,
+                    [UploadedByUserId] int NOT NULL,
+                    [ProjectId] int NULL,
+                    [TaskId] int NULL,
+                    [UploadedDate] datetime2 NOT NULL,
+                    [UpdatedDate] datetime2 NOT NULL,
+                    [IsShared] bit NOT NULL,
+                    [Tags] nvarchar(1000) NULL,
+                    [ScanStatus] int NOT NULL,
+                    [ScanCompletedDate] datetime2 NULL,
+                    CONSTRAINT [PK_Documents] PRIMARY KEY ([DocumentId]),
+                    CONSTRAINT [FK_Documents_Users_UploadedByUserId] FOREIGN KEY ([UploadedByUserId]) REFERENCES [Users] ([UserId]),
+                    CONSTRAINT [FK_Documents_Projects_ProjectId] FOREIGN KEY ([ProjectId]) REFERENCES [Projects] ([ProjectId]) ON DELETE SET NULL,
+                    CONSTRAINT [FK_Documents_Tasks_TaskId] FOREIGN KEY ([TaskId]) REFERENCES [Tasks] ([TaskId]) ON DELETE SET NULL
+                );
+                CREATE INDEX [IX_Documents_UploadedByUserId_ScanStatus] ON [Documents] ([UploadedByUserId], [ScanStatus]);
+                CREATE INDEX [IX_Documents_ProjectId_ScanStatus] ON [Documents] ([ProjectId], [ScanStatus]);
+            END;
+            IF OBJECT_ID(N'[DocumentShares]', N'U') IS NULL
+            BEGIN
+                CREATE TABLE [DocumentShares] (
+                    [DocumentShareId] int NOT NULL IDENTITY,
+                    [DocumentId] int NOT NULL,
+                    [UserId] int NOT NULL,
+                    [SharedByUserId] int NOT NULL,
+                    [SharedDate] datetime2 NOT NULL,
+                    [IsActive] bit NOT NULL,
+                    CONSTRAINT [PK_DocumentShares] PRIMARY KEY ([DocumentShareId]),
+                    CONSTRAINT [FK_DocumentShares_Documents_DocumentId] FOREIGN KEY ([DocumentId]) REFERENCES [Documents] ([DocumentId]) ON DELETE CASCADE,
+                    CONSTRAINT [FK_DocumentShares_Users_UserId] FOREIGN KEY ([UserId]) REFERENCES [Users] ([UserId]),
+                    CONSTRAINT [FK_DocumentShares_Users_SharedByUserId] FOREIGN KEY ([SharedByUserId]) REFERENCES [Users] ([UserId])
+                );
+                CREATE INDEX [IX_DocumentShares_UserId_IsActive] ON [DocumentShares] ([UserId], [IsActive]);
+            END;
+            IF OBJECT_ID(N'[AuditLogs]', N'U') IS NULL
+            BEGIN
+                CREATE TABLE [AuditLogs] (
+                    [AuditLogId] int NOT NULL IDENTITY,
+                    [UserId] int NULL,
+                    [DocumentId] int NULL,
+                    [ActionType] nvarchar(50) NOT NULL,
+                    [ActionDate] datetime2 NOT NULL,
+                    [Details] nvarchar(2000) NULL,
+                    CONSTRAINT [PK_AuditLogs] PRIMARY KEY ([AuditLogId]),
+                    CONSTRAINT [FK_AuditLogs_Users_UserId] FOREIGN KEY ([UserId]) REFERENCES [Users] ([UserId]) ON DELETE SET NULL,
+                    CONSTRAINT [FK_AuditLogs_Documents_DocumentId] FOREIGN KEY ([DocumentId]) REFERENCES [Documents] ([DocumentId]) ON DELETE SET NULL
+                );
+            END;
+            """);
     }
     catch (Exception ex)
     {
@@ -104,6 +174,14 @@ app.UseRouting();
 // Enable authentication and authorization
 app.UseAuthentication();
 app.UseAuthorization();
+
+app.MapGet("/documents/download/{documentId:int}", async (int documentId, ClaimsPrincipal user, IDocumentService documents, CancellationToken cancellationToken) =>
+{
+    if (!int.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        return Results.Unauthorized();
+    var download = await documents.GetDownloadAsync(documentId, userId, cancellationToken);
+    return download is null ? Results.NotFound() : Results.File(download.Content, download.ContentType, download.FileName);
+}).RequireAuthorization();
 
 app.MapBlazorHub();
 app.MapFallbackToPage("/_Host");
